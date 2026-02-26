@@ -95,6 +95,54 @@ class TicketService:
         else:
             return {"id":None}, 403
         
+    
+
+    @staticmethod
+    async def close_ticket(**data):
+        ticket_id = data.get("id")
+        status = str(data.get("status", "")).lower()
+        web_url = data.get("web_url")
+        customer_id = data.get("customer_id")
+        email = data.get("raised_by", {}).get("email") or data.get("email")
+
+        if not ticket_id:
+            return {"error": "id is required"}, 400
+
+        if status != "closed":
+            return {"error": "status must be closed"}, 400
+
+        if not web_url:
+            return {"error": "web_url is required"}, 400
+
+        if not customer_id or not email:
+            return {"error": "customer_id and email are required"}, 400
+
+        try:
+            outlet_id = await SupportSettingsDao.get_outlet_by_web_url(web_url=web_url)
+        except ValueError:
+            return {"error": f"SupportSettings not found for shop '{web_url}'"}, 404
+        
+        ticket_id = int(ticket_id)
+        ticket = await TicketsDao.get_by_id(id=ticket_id)
+        if not ticket:
+            return {"error": "Ticket not found"}, 404
+
+        if ticket.outlet_id != outlet_id:
+            return {"error": "Ticket does not belong to this shop"}, 403
+
+        ticket_customer_id = (ticket.customer_details or {}).get("customer_id")
+        ticket_email = (ticket.raised_by or {}).get("email")
+
+        if str(ticket_customer_id) != str(customer_id) or (ticket_email or "").lower() != str(email).lower():
+            return {"error": "Not authorized to close this ticket"}, 403
+
+        updated_id = await TicketsDao.update_status_for_customer(ticket_id=ticket_id, status=status)
+        if not updated_id:
+            return {"error": "Ticket update failed"}, 404
+
+        return {"id": updated_id, "status": status}, 200
+        
+        
     @staticmethod
     async def rate_ticket(**data):
         ticket_id = data.get("id")

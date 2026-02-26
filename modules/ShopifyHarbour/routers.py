@@ -24,6 +24,12 @@ async def delete_ticket(request: Request):
     return await tickets_controller(request=request)
 
 
+#-------close ticket--------
+@router.api_route("/handler/shop/close", methods=["POST"], response_model=APIResponse[dict], response_class=ApiResponse)
+async def close_ticket(request: Request):
+    return await close_ticket_controller(request=request)
+
+
 
 # ========================== SUPPORT SETTINGS ROUTES ==========================
 
