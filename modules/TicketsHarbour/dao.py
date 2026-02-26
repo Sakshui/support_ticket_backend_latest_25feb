@@ -1,4 +1,4 @@
-from sqlalchemy import text, or_, select, bindparam
+from sqlalchemy import text, or_, and_, select, bindparam
 from .models import *
 from.schemas import *
 from app.database import *
@@ -6,22 +6,26 @@ from typing import Tuple
 from app.database import SupportTicketAsyncSession
 from sqlalchemy import func
 
-JSON_KEY_MAPPING = {
-    "email": "raised_by",
-    "user_id": "raised_by",
-    "user_type": "raised_by",
-    "name": "raised_by",
 
+
+# -------------------------------------------------------------- TickitsHarbour ------------------------------------------------------------
+
+TICKETS_JSON_KEY_MAPPING = {
     "customer_id": "customer_details",
     "customer_name": "customer_details",
     "customer_email": "customer_details",
-
-    "priority": "additional_details",
-    "department": "additional_details",
-    "tags": "additional_details",
 }
 
-# -------------------------------------------------------------- TickitsHarbour ------------------------------------------------------------
+TICKETS_NORMAL_COLUMNS_MAPPING = {
+    "created_at" : Ticket.created_at,
+    "status": Ticket.status,
+    "support_ticket_id" : Ticket.support_ticket_id,
+    "outlet_id": Ticket.outlet_id,
+    "assigned_agent_id": Ticket.assigned_agent_id,
+    "priority": Ticket.priority,
+    "department": Ticket.department,
+    "tags": Ticket.tags,
+}
 
 class TicketsDao:
 
@@ -29,141 +33,157 @@ class TicketsDao:
     async def create(ticket: TicketBase) -> int:
         ticket_obj = Ticket(**ticket.dict())
         return await create(ticket_obj)
-    
+
     @staticmethod
     async def get_by_support_ticket_id(support_ticket_id: String) -> Optional[Ticket]:
         query = select(Ticket).where(Ticket.support_ticket_id== support_ticket_id)
         return await fetch_one(query)
-    
+
+    @staticmethod
+    async def get_by_assigned_agent_id(id: int):
+        query = select(Ticket).where(Ticket.assigned_agent_id == id)
+        return await fetch_all(query)
+
     @staticmethod
     async def get_by_id(id: int) -> Optional[Ticket]:
         query = select(Ticket).where(Ticket.id== id)
         return await fetch_one(query)
-    
-    @staticmethod
-    async def filters(**filters) -> List[Ticket]:
-        query = select(Ticket)
-        conditions = [getattr(Ticket, key) == value for key, value in filters.items()]
-        query = select(Ticket).where(*conditions)
-        return await fetch_all(query)
-
-    @staticmethod
-    async def global_search(
-        *,
-        outlet_id: int,
-        search: str,
-    ):
-        pattern = f"%{search}%"
-
-        query = select(Ticket).where(
-            Ticket.outlet_id == outlet_id,
-            or_(
-                Ticket.support_ticket_id.ilike(pattern),
-                Ticket.customer_details["customer_name"].astext.ilike(pattern),
-                Ticket.customer_details["customer_email"].astext.ilike(pattern),
-                Ticket.content["subject"].astext.ilike(pattern),
-                Ticket.content["description"].astext.ilike(pattern),
-            )
-        )
-
-        return await fetch_all(query)
-
-    @staticmethod
-    async def filters_auth(
-        *,
-        outlet_id: int | None,
-        filters: dict,
-    ) -> list[Ticket]:
-        query = select(Ticket)
-        conditions = []
-
-        if outlet_id is not None:
-            conditions.append(Ticket.outlet_id == outlet_id)
-
-        ALLOWED_COLUMNS = {
-            "support_ticket_id",
-            "status",
-            "assigned_agent",
-            "is_in_trash",
-        }
-
-        for key, value in filters.items():
-            if value is None:
-                continue
-
-            if key in ALLOWED_COLUMNS:
-                conditions.append(getattr(Ticket, key) == value)
-                continue
-
-            json_column_name = JSON_KEY_MAPPING.get(key)
-            if json_column_name:
-                column = getattr(Ticket, json_column_name)
-
-                conditions.append(column[key].astext == str(value))
-                continue
-
-            raise ValueError(f"Unsupported filter: {key}")
-
-        if conditions:
-            query = query.where(*conditions)
-
-        return await fetch_all(query)
-
-    @staticmethod
-    async def filters_unauth(**filters) -> List[Ticket]:
-        query = select(Ticket)
-        conditions = []
-
-        for key, value in filters.items():
-            if hasattr(Ticket, key):
-                conditions.append(getattr(Ticket, key) == value)
-                continue
-            
-            json_field = JSON_KEY_MAPPING.get(key)
-            if json_field:
-                column = getattr(Ticket, json_field)
-                conditions.append(column[key].astext == str(value))
-                continue
-        query = select(Ticket).where(*conditions)
-        return await fetch_all(query)
-    
-    @staticmethod
-    async def update(ticket: TicketUpdateIn) -> int:
-        ticket = Ticket(**ticket.dict())
-        return await update(ticket)
-    
-    @staticmethod
-    async def delete(id: int):
-        await delete_by_id(Ticket, id=id)
 
     @staticmethod
     async def get_last_ticket(outlet_id: int) -> Optional[str]:
         query = select(Ticket.support_ticket_id).where(Ticket.outlet_id == outlet_id).order_by(Ticket.id.desc()).limit(1)
+        row = await fetch_one(query)
 
-        async with SupportTicketAsyncSession() as session:
-            result = await session.execute(query)
-            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return str(row) 
+        
+    @staticmethod
+    async def get_outlet(shop: str) -> Tuple[str, str]:
+        query = text(""" SELECT * FROM shopify_shop WHERE shop = :shop """).bindparams(shop=shop)
+        result = await fetch_one(query)
+        if not result:
+            raise ValueError("No outlet info found")
+        return result
 
-            if row is None:
-                return None
-            return str(row)     
+    @staticmethod
+    async def get_paginated_tickets(
+        outlet_id: int,
+        limit: int,
+        offset: int,
+        search: str | None = None,
+        filters: dict | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc"
+    ):
+        
+        # base select query to fetch based on outlet_id
+        query = select(Ticket).where(Ticket.outlet_id == outlet_id)
+        
+        # search
+        if search is not None:
+            search_pattern = f"%{search}%"
+            
+            query = query.where(
+            or_(
+                Ticket.support_ticket_id.ilike(search_pattern),
+                Ticket.customer_details["customer_first_name"].astext.ilike(search_pattern),
+                Ticket.customer_details["customer_last_name"].astext.ilike(search_pattern),
+                Ticket.customer_details["customer_email"].astext.ilike(search_pattern),
+            )
+        )
+        
+        # filter
+        if filters is not None:
+            for key, value in filters.items():
+                
+                if key in TICKETS_NORMAL_COLUMNS_MAPPING:
+                    query = query.where(TICKETS_NORMAL_COLUMNS_MAPPING[key] == value)
+                
+                elif key in TICKETS_JSON_KEY_MAPPING:
+                    column = getattr(Ticket, TICKETS_JSON_KEY_MAPPING[key])
+                    query = query.where(column[key].astext == str(value))
+                
+                else:
+                    raise ValueError(f"Unsupported filter: {key}")
 
+        # sort & order
+        SORTABLE_EXPRESSIONS = {
+            "created_at": Ticket.created_at,
+            "support_ticket_id": Ticket.support_ticket_id,
+            "priority": Ticket.priority,
+            "department": Ticket.department,
+        }
+
+        column = SORTABLE_EXPRESSIONS.get(sort_by, Ticket.created_at)
+
+        if sort_order == "asc":
+            query = query.order_by(column.asc())
+        else:
+            query = query.order_by(column.desc())
+        
+        # fallback sort_by
+        if sort_by is None and sort_order is None:
+            query = query.order_by(Ticket.support_ticket_id.asc())
+        
+        # total count
+        count_query = select(func.count()).select_from(query.subquery())
+        total_count = await fetch_all(count_query)
+        
+        # limit & offset
+        query = query.limit(limit).offset(offset) if limit != 0 else query
+        row_query = await fetch_all(query)
+        
+        return row_query, total_count
+
+    @staticmethod
+    async def get_ticket_stats(outlet_id: int):
+        query = (
+            select(
+                func.count().label("total"),
+                func.count().filter(Ticket.status == "open").label("open_count"),
+                func.count().filter(Ticket.status == "pending").label("pending_count"),
+                func.count().filter(Ticket.status == "closed").label("closed_count"),
+                func.count().filter(Ticket.status == "assigned").label("assigned_count"),
+            ).where(Ticket.outlet_id == outlet_id)
+        )
+
+        result = await execute_query(query)
+
+        row = result.one()  # IMPORTANT
+
+        return {
+            "total_tickets_count": row.total,
+            "open_tickets_count": row.open_count,
+            "pending_tickets_count": row.pending_count,
+            "closed_tickets_count": row.closed_count,
+            "assigned_tickets_count": row.assigned_count,
+        }
+
+    @staticmethod
+    async def update(ticket: TicketUpdateIn) -> int:
+        ticket = Ticket(**ticket.dict())
+        return await update(ticket)
 
     @staticmethod
     async def update_status_and_agent(ticket_update: TicketUpdateIn):
         """
         Update ticket using TicketUpdateIn typehint.
-        Sets closed_at timestamp when status changes to 'close'.
+        Sets closed_at timestamp when status changes to 'closed'.
         """
+        
+        query = select(Ticket.assigned_agent_id).where(Ticket.outlet_id == ticket_update.outlet_id, Ticket.id == ticket_update.id)
+        current_assigned_agent_id = await fetch_one(query)
+        
         status_value = ticket_update.status.value.lower() if hasattr(ticket_update.status, 'value') else str(ticket_update.status).lower()
         
-        # Set closed_at if status is being changed to 'close'
-        if status_value == 'close':
+        # Set closed_at if status is being changed to 'closed'
+        if status_value == 'closed':
             query = text("""
                 UPDATE tickets
                 SET 
                     status = :status,
-                    assigned_agent = :assigned_agent,
+                    assigned_agent_id = :assigned_agent_id,
                     updated_at = NOW(),
                     closed_at = CASE 
                         WHEN closed_at IS NULL THEN NOW()
@@ -172,12 +192,31 @@ class TicketsDao:
                 WHERE id = :id AND outlet_id = :outlet_id
                 RETURNING id;
             """)
+        elif current_assigned_agent_id != ticket_update.assigned_agent_id: # updating previous_assigned_agent_id
+            query = text("""
+                UPDATE tickets
+                SET 
+                    status = :status,
+                    previous_assigned_agent_id = 
+                        COALESCE(previous_assigned_agent_id, '[]'::jsonb)
+                        || jsonb_build_array(
+                            jsonb_build_object(
+                                'agent_id', assigned_agent_id,
+                                'timestamp', NOW()
+                            )
+                        ),
+                    assigned_agent_id = :assigned_agent_id,
+                    updated_at = NOW()
+                WHERE id = :id 
+                AND outlet_id = :outlet_id
+                RETURNING id;
+            """)
         else:
             query = text("""
                 UPDATE tickets
                 SET 
                     status = :status,
-                    assigned_agent = :assigned_agent,
+                    assigned_agent_id = :assigned_agent_id,
                     updated_at = NOW()
                 WHERE id = :id AND outlet_id = :outlet_id
                 RETURNING id;
@@ -187,26 +226,13 @@ class TicketsDao:
             id=ticket_update.id,
             outlet_id=ticket_update.outlet_id,
             status=status_value,
-            assigned_agent=ticket_update.assigned_agent
+            assigned_agent_id=ticket_update.assigned_agent_id,
         )
 
         result = await execute_query(query)
         row = result.fetchone()
         return row[0] if row else None
 
-    @staticmethod
-    async def get_outlet(shop: str) -> Tuple[str, str]:
-        query = text(""" SELECT * FROM shopify_shop WHERE shop = :shop """).bindparams( shop= shop)
-        result = await fetch_one(query)
-        if not result:
-            raise ValueError("No outlet info found")
-        return result
-    
-    @staticmethod
-    async def count_open_tickets_by_agent(agent_id: int) -> int:
-        query = select(func.count(Ticket.id)).where(Ticket.assigned_agent == agent_id, Ticket.status != 'close')
-        return await fetch_one(query)
-    
     @staticmethod
     async def update_agent_rating(id: int, rating: int):
         query = text("""
@@ -237,8 +263,41 @@ class TicketsDao:
         result = await execute_query(query)
         row = result.fetchone()
         return row[0] if row else None
-        
-        
+
+    @staticmethod
+    async def delete(id: int):
+        await delete_by_id(Ticket, id=id)
+
+    @staticmethod
+    async def filters(**filters) -> List[Ticket]:
+        query = select(Ticket)
+        conditions = [getattr(Ticket, key) == value for key, value in filters.items()]
+        query = select(Ticket).where(*conditions)
+        return await fetch_all(query)
+
+    @staticmethod
+    async def filters_unauth(**filters) -> List[Ticket]:
+        query = select(Ticket)
+        conditions = []
+
+        for key, value in filters.items():
+            if hasattr(Ticket, key):
+                conditions.append(getattr(Ticket, key) == value)
+                continue
+            
+            json_field = TICKETS_JSON_KEY_MAPPING.get(key)
+            if json_field:
+                column = getattr(Ticket, json_field)
+                conditions.append(column[key].astext == str(value))
+                continue
+        query = select(Ticket).where(*conditions)
+        return await fetch_all(query)
+
+    @staticmethod
+    async def count_open_tickets_by_agent(agent_id: int) -> int:
+        query = select(func.count(Ticket.id)).where(Ticket.assigned_agent_id == agent_id, Ticket.status != 'closed')
+        return await fetch_one(query)
+
 # -------------------------------------------------------------- SupportSettings ------------------------------------------------------------
 
 class SupportSettingsDao:
@@ -303,8 +362,15 @@ class SupportSettingsDao:
 
         return result
 
+# ------------------------------------------------------------------- Agents -----------------------------------------------------------------
 
-# -------------------------------------------------------------- Agents ------------------------------------------------------------
+AGENTS_NORMAL_COLUMNS_MAPPING = {
+    "created_at" : Agent.created_at,
+    "status": Agent.status,
+    "outlet_id": Agent.outlet_id,
+    "level": Agent.level,
+    "department": Agent.department,
+}
 
 class AgentsDao:
 
@@ -322,6 +388,96 @@ class AgentsDao:
     async def get_by_user_id(user_id: int) -> Optional[Agent]:
         query = select(Agent).where(Agent.user_id == user_id)
         return await fetch_one(query)
+
+    @staticmethod
+    async def get_paginated_agents(
+        outlet_id: int,
+        limit: int,
+        offset: int,
+        search: str | None = None,
+        filters: dict | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc"
+    ):
+        # base agent query
+        query = select(Agent).where(Agent.outlet_id == outlet_id)
+
+        # search
+        if search:
+            search = search.strip()
+            if search:
+                search_term = f"%{search}%"
+                query = query.where(or_(
+                    Agent.agent_email.ilike(search_term),
+                    Agent.agent_first_name.ilike(search_term),
+                    Agent.agent_last_name.ilike(search_term),
+                    Agent.phone.ilike(search_term),
+                ))
+        
+        # filter
+        if filters is not None:
+            for key, value in filters.items():
+                if key in AGENTS_NORMAL_COLUMNS_MAPPING:
+                    query = query.where(AGENTS_NORMAL_COLUMNS_MAPPING[key] == value)
+                else:
+                    raise ValueError(f"Unsupported filter: {key}")
+
+        # sort & order
+        SORTABLE_EXPRESSIONS = {
+            "created_at": Agent.created_at,
+            "hired_at": Agent.hired_at,
+            "status": Agent.status,
+            "level": Agent.level,
+            "department": Agent.department,
+        }
+
+        column = SORTABLE_EXPRESSIONS.get(sort_by, Agent.created_at)
+
+        if sort_order == "asc":
+            query = query.order_by(column.asc())
+        else:
+            query = query.order_by(column.desc())
+        
+        # fallback sort_by
+        if sort_by is None and sort_order is None:
+            query = query.order_by(Agent.user_id.asc())
+        
+        # total count
+        count_query = select(func.count()).select_from(query.subquery())
+        total_count = await fetch_all(count_query)
+        
+        # limit & offset
+        query = query.limit(limit).offset(offset) if limit != 0 else query
+        row_query = await fetch_all(query)
+        
+        return row_query, total_count
+    
+    @staticmethod
+    async def get_agent_stats(outlet_id: int):
+        
+        agent_count_query = (
+            select(
+                func.count().label("total_agents"),
+                func.count().filter(Agent.status == "active").label("total_active_agents"),
+            ).where(Agent.outlet_id == outlet_id)
+        )
+        total_active_tickets_query = (
+            select(
+                func.count().label("total_active_tickets")
+                ).where(Ticket.outlet_id == outlet_id, Ticket.status != "closed")
+            )
+        
+        agent_row = await execute_query(agent_count_query)
+        agent_result = agent_row.one()
+        
+        total_active_tickets_row = await execute_query(total_active_tickets_query)
+        total_active_tickets_result = total_active_tickets_row.one()
+        
+        return {
+            "total_agents": agent_result.total_agents,
+            "total_active_agents": agent_result.total_active_agents,
+            "total_active_tickets": total_active_tickets_result.total_active_tickets,
+            }
     
     @staticmethod
     async def filters(**filters) -> List[Agent]:
@@ -352,3 +508,52 @@ class AgentsDao:
     @staticmethod
     async def delete(id: int):
         await delete_by_id(Agent, id=id)
+
+# ------------------------------------------------ Ticket Taxonomy (Issues, Category, Sub-category) ----------------------------------------------
+
+class TicketTaxonomyDao:
+    
+    @staticmethod
+    async def get_taxonomy_rows(outlet_id: int):
+
+        query = (
+            select(
+                func.json_build_object(
+                    "issue_id", Issue.id,
+                    "issue_name", Issue.name,
+                    "category_id", Category.id,
+                    "category_name", Category.name,
+                    "sub_category_id", SubCategory.id,
+                    "sub_category_name", SubCategory.name
+                )
+            )
+            .select_from(OutletIssueCategoryMap)
+            .join(Issue, OutletIssueCategoryMap.issue_id == Issue.id)
+            .join(Category, OutletIssueCategoryMap.category_id == Category.id)
+            .join(
+                OutletCategorySubCategoryMap,
+                and_(
+                    OutletCategorySubCategoryMap.category_id == Category.id,
+                    OutletCategorySubCategoryMap.outlet_id == outlet_id,
+                    OutletCategorySubCategoryMap.is_active == True
+                )
+            )
+            .join(SubCategory, OutletCategorySubCategoryMap.sub_category_id == SubCategory.id)
+            .where(
+                and_(
+                    OutletIssueCategoryMap.outlet_id == outlet_id,
+                    OutletIssueCategoryMap.is_active == True,
+                    Issue.is_active == True,
+                    Issue.is_trash == False,
+                    Category.is_active == True,
+                    Category.is_trash == False,
+                    SubCategory.is_active == True,
+                    SubCategory.is_trash == False,
+                )
+            )
+        )
+        
+        # print(outlet_id)
+        result = await fetch_all(query)
+        # print(result)
+        return result

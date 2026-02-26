@@ -90,16 +90,16 @@ class TicketBase(BaseModel):
     raised_by_id: int # customer_id or agent_id based on raised_by
     customer_details: Optional[CustomerDetails] = None
     
-    tags: Optional[List[str]]
+    tags: List[str]
     priority: TicketPriorityEnum = TicketPriorityEnum.LOW
     department: str
     
-    issue_slug: str
-    category_slug: str
-    sub_category_slug: str
+    issue: str
+    category: str
+    sub_category: str
     
     status: TicketStatusEnum = TicketStatusEnum.PENDING
-    assigned_agent_id: int = None
+    assigned_agent_id: Optional[int] = None
     previous_assigned_agent_id: List[Dict[str, Any]]
     
     source: Optional[SourceInfo] = None 
@@ -145,35 +145,6 @@ class SupportSettingsRead(SupportSettingsBase):
 
 class SupportSettingsUpdateIn(SupportSettingsBase):
     id: int
-
-
-# ================================================ Issue, Category, Sub-category ====================================================================
-
-class SubCategoryDefault(BaseModel):
-    id: int
-    name: str
-    slug: str
-    is_active: bool
-
-    model_config = {"from_attributes": True}
-
-class CategoryDefault(BaseModel):
-    id: int
-    name: str
-    slug: str
-    is_active: bool
-    sub_categories: List[SubCategoryDefault] = []
-
-    model_config = {"from_attributes": True}
-
-class IssueDefault(BaseModel):
-    id: int
-    name: str
-    slug: str
-    is_active: bool
-    categories: List[CategoryDefault] = []
-
-    model_config = {"from_attributes": True}
 
 
 # ================================================ Agents ====================================================================

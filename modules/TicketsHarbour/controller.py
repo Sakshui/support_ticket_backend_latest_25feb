@@ -8,7 +8,6 @@ from .services import *
 
 
 # ========================== AUTHENTICATED TICKET CONTROLLER ==========================
-
 async def auth_tickets_controller(request: Request, outlet_id: Optional[int] = None) -> ApiResponse:
     data = await get_request_data(request.headers.get("content-type", ""), request)
     data.update({"outlet_id": outlet_id})
@@ -33,7 +32,6 @@ async def auth_tickets_controller(request: Request, outlet_id: Optional[int] = N
         "raw_user_agent": user_agent_str
     }
 
-
     if request.method in ("POST", "PUT"):
         data["source"] = source_payload
     
@@ -44,33 +42,7 @@ async def auth_tickets_controller(request: Request, outlet_id: Optional[int] = N
             result, status_code = await AuthTicketService.save(**data)
             message = "Tickets send successfully"
         case "GET":
-            support_ticket_id = data.get("support_ticket_id")
-            search = data.get("search")
-            
-            filters = {
-                k: v
-                for k, v in data.items()
-                if k not in {
-                    "search",
-                    "outlet_id",
-                    "customer_name",
-                    "customer_email",
-                    "support_ticket_id",
-                }
-            }
-
-            if search:
-                result, status_code = await AuthTicketService.global_search(
-                    outlet_id=outlet_id,
-                    search=search,
-                )
-            elif support_ticket_id:
-                result, status_code = await AuthTicketService.get_by_support_ticket_id(support_ticket_id)
-            else:
-                result, status_code = await AuthTicketService.filters_auth(
-                    outlet_id=outlet_id,
-                    filters=filters,    
-                )
+            result, status_code = await AuthTicketService.get_auth_paginated_tickets(**data)
             message = "Tickets fetched successfully"
         case "PUT":
             result, status_code = await AuthTicketService.update(**data)
@@ -83,6 +55,139 @@ async def auth_tickets_controller(request: Request, outlet_id: Optional[int] = N
 
     return APIResponse.success(data=result, message=message, code=status_code)
 
+
+async def auth_tickets_stats_controller(request: Request, outlet_id: Optional[int] = None) -> ApiResponse:
+    data = await get_request_data(request.headers.get("content-type", ""), request)
+    
+    method = request.method
+    
+    if method != "GET":
+        return APIResponse.error(message="Method not allowed", code=405)
+    
+    result, status_code = await AuthTicketService.get_ticket_stats(**data)
+    message = "Tickets stat fetched successfully"
+    
+    return APIResponse.success(data=result, message=message, code=status_code)
+
+
+# ========================== SUPPORT TICKET ISSUE TYPE CONTROLLER ==========================
+async def ticket_taxonomy_controller(request: Request, outlet_id: Optional[int] = None) -> ApiResponse:
+    data = await get_request_data(request.headers.get("content-type", ""), request)
+    data.update({"outlet_id": outlet_id})
+    
+    method = request.method
+    
+    match method:
+        case "GET":
+            result, status_code = await TicketTaxonomyService.get_taxonomy(**data)
+            message = "Ticket issues, categories, sub-categories fetched successfully"
+
+    return APIResponse.success(data=result, message=message, code=status_code)
+
+    
+# ========================== SUPPORT SETTINGS CONTROLLER ==========================
+async def support_settings_controller(request: Request, outlet_id: Optional[int]) -> ApiResponse:
+    data = await get_request_data(request.headers.get("content-type", ""), request)
+    data.update({"outlet_id": outlet_id})
+
+    method = request.method
+
+    match method:
+        case "POST":
+            result, status_code = await SupportSettingsService.save(**data)
+            message = "SupportSettings created successfully"
+
+        case "GET":
+            result, status_code = await SupportSettingsService.filters(**data)
+            message = "SupportSettings fetched successfully"
+
+        case "PUT":
+            result, status_code = await SupportSettingsService.update(**data)
+            message = "SupportSettings updated successfully"
+
+        case "DELETE":
+            result, status_code = await SupportSettingsService.delete(**data)
+            message = "SupportSettings deleted successfully"
+
+        case _:
+            return APIResponse.error(message="Method not allowed", code=405)
+
+    return APIResponse.success(data=result, message=message, code=status_code)
+
+
+# ========================== AGENTS CONTROLLER ==========================
+async def agents_controller(request: Request, outlet_id: Optional[int] = None) -> ApiResponse:
+    data = await get_request_data(request.headers.get("content-type", ""), request)
+    
+    if outlet_id:
+        data.update({"outlet_id": outlet_id})
+    
+    method = request.method
+
+    match method:
+        case "POST":
+            result, status_code = await AgentService.save(**data)
+            message = "Agent created successfully"
+
+        case "GET":
+            result, status_code = await AgentService.get_auth_paginated_agents(**data)
+            message = "Agents fetched successfully"
+
+        case "PUT":
+            result, status_code = await AgentService.update(**data)
+            message = "Agent updated successfully"
+
+        case "DELETE":
+            result, status_code = await AgentService.delete(**data)
+            if status_code == 200:
+                message = "Agent deleted successfully"
+            else:
+                return APIResponse.error(message=result.get("error", "Agent deletion failed"), code=status_code)
+
+        case _:
+            return APIResponse.error(message="Method not allowed", code=405)
+
+    return APIResponse.success(data=result, message=message, code=status_code)
+
+async def agents_stats_controller(request: Request, outlet_id: Optional[int]) -> ApiResponse:
+    data = await get_request_data(request.headers.get("content-type", ""), request)
+    
+    method = request.method
+    if method != "GET":
+        return APIResponse.error("Method not allowed", code=405)
+    
+    result, status_code = await AgentService.get_agent_stats(**data)
+    message = "Agent stats fetched successfully"
+    
+    return APIResponse.success(data=result, message=message, code=status_code)
+
+
+# ========================== TICKET RATING CONTROLLERS ==========================
+
+async def agent_rating_controller(request: Request, outlet_id: Optional[int] = None) -> ApiResponse:
+    data = await get_request_data(request.headers.get("content-type", ""), request)
+    data["outlet_id"] = outlet_id
+    
+    result, status_code = await AuthTicketService.rate_ticket(**data)
+    
+    if status_code == 200:
+        message = "Rating submitted successfully"
+    else:
+        message = result.get("error", "Rating failed")
+    
+    return APIResponse.success(data=result, message=message, code=status_code)
+
+async def customer_rating_controller(request: Request) -> ApiResponse:
+    data = await get_request_data(request.headers.get("content-type", ""), request)
+    
+    result, status_code = await TicketService.rate_ticket(**data)
+    
+    if status_code == 200:
+        message = "Rating submitted successfully"
+    else:
+        message = result.get("error", "Rating failed")
+    
+    return APIResponse.success(data=result, message=message, code=status_code)
 
 # ============================================== UNAUTHENTICATED CUSTOMER TICKET CONTROLLER ========================================
 
@@ -121,107 +226,4 @@ async def tickets_controller(request: Request) -> ApiResponse:
         case _:
             return APIResponse.error(message="Method not allowed", code=405)
 
-    return APIResponse.success(data=result, message=message, code=status_code)
-
-    
-    
-# ========================== SUPPORT SETTINGS CONTROLLER ==========================
-
-async def support_settings_controller(request: Request, outlet_id: Optional[int]) -> ApiResponse:
-    data = await get_request_data(request.headers.get("content-type", ""), request)
-    data.update({"outlet_id": outlet_id})
-
-    method = request.method
-
-    match method:
-        case "POST":
-            result, status_code = await SupportSettingsService.save(**data)
-            message = "SupportSettings created successfully"
-
-        case "GET":
-            result, status_code = await SupportSettingsService.filters(**data)
-            message = "SupportSettings fetched successfully"
-
-        case "PUT":
-            result, status_code = await SupportSettingsService.update(**data)
-            message = "SupportSettings updated successfully"
-
-        case "DELETE":
-            result, status_code = await SupportSettingsService.delete(**data)
-            message = "SupportSettings deleted successfully"
-
-        case _:
-            return APIResponse.error(message="Method not allowed", code=405)
-
-    return APIResponse.success(data=result, message=message, code=status_code)
-
-
-# ========================== AGENTS CONTROLLER ==========================
-
-async def agents_controller(request: Request, outlet_id: Optional[int] = None) -> ApiResponse:
-    data = await get_request_data(request.headers.get("content-type", ""), request)
-    
-    if outlet_id:
-        data.update({"outlet_id": outlet_id})
-    
-    method = request.method
-
-    match method:
-        case "POST":
-            result, status_code = await AgentService.save(**data)
-            message = "Agent created successfully"
-
-        case "GET":
-            agent_id = data.get("id")
-            user_id = data.get("user_id")
-            
-            if agent_id:
-                result, status_code = await AgentService.get_by_id(agent_id)
-            elif user_id:
-                result, status_code = await AgentService.get_by_user_id(user_id)
-            else:
-                result, status_code = await AgentService.filters(**data)
-            message = "Agents fetched successfully"
-
-        case "PUT":
-            result, status_code = await AgentService.update(**data)
-            message = "Agent updated successfully"
-
-        case "DELETE":
-            result, status_code = await AgentService.delete(**data)
-            if status_code == 200:
-                message = "Agent deleted successfully"
-            else:
-                return APIResponse.error(message=result.get("error", "Agent deletion failed"), code=status_code)
-
-        case _:
-            return APIResponse.error(message="Method not allowed", code=405)
-
-    return APIResponse.success(data=result, message=message, code=status_code)
-
-# ========================== TICKET RATING CONTROLLERS ==========================
-
-async def agent_rating_controller(request: Request, outlet_id: Optional[int] = None) -> ApiResponse:
-    data = await get_request_data(request.headers.get("content-type", ""), request)
-    data["outlet_id"] = outlet_id
-    
-    result, status_code = await AuthTicketService.rate_ticket(**data)
-    
-    if status_code == 200:
-        message = "Rating submitted successfully"
-    else:
-        message = result.get("error", "Rating failed")
-    
-    return APIResponse.success(data=result, message=message, code=status_code)
-
-async def customer_rating_controller(request: Request) -> ApiResponse:
-    data = await get_request_data(request.headers.get("content-type", ""), request)
-    
-    result, status_code = await TicketService.rate_ticket(**data)
-    
-    if status_code == 200:
-        message = "Rating submitted successfully"
-    else:
-        message = result.get("error", "Rating failed")
-    
     return APIResponse.success(data=result, message=message, code=status_code)
