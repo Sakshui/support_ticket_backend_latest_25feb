@@ -14,9 +14,9 @@ class TicketService:
 
         data["outlet_id"] = support_settings_for_outlet.outlet_id
 
-        additional = data.get("additional_details", {})
-        if not additional or "department" not in additional:
-            return {"error": "department field is required"}, 400
+        # additional = data.get("additional_details", {})
+        # if not additional or "department" not in additional:
+        #     return {"error": "department field is required"}, 400
 
         outlet_id = data["outlet_id"]
         support_settings_for_outlet = await SupportSettingsDao.get_by_outlet_id_or_web_url(outlet_id=outlet_id)
@@ -25,10 +25,10 @@ class TicketService:
         ticket_prefix = settings["prefix"]
         start_no = settings["start_no"]
         email_required = settings["email_required"]
-        email = data.get("raised_by", {}).get("email")
+        #email = data.get("raised_by", {}).get("email")
 
-        if email_required and email is None:
-            return {"error": "kindly provide email to generate Ticket."}, 400
+        #if email_required and email is None:
+        #    return {"error": "kindly provide email to generate Ticket."}, 400
 
         # ---- Generate ticket number ----
         last_ticket = await TicketsDao.get_last_ticket(outlet_id=outlet_id)
@@ -61,6 +61,14 @@ class TicketService:
 
         # data["assigned_agent"] = selected_agent.id
 
+        # 🔎 DEBUG: Print important values before insert
+        print("========== DEBUG TICKET INSERT ==========")
+        print("raised_by_id:", type(data.get("raised_by_id")), data.get("raised_by_id"))
+        print("issue_id:", type(data.get("issue_id")), data.get("issue_id"))
+        print("category_id:", type(data.get("category_id")), data.get("category_id"))
+        print("sub_category_id:", type(data.get("sub_category_id")), data.get("sub_category_id"))
+        print("==========================================")
+
         ticket_model = TicketBase(**data)
         id_ = await TicketsDao.create(ticket_model)
         return {"id": id_}, 200
@@ -73,7 +81,29 @@ class TicketService:
         filters["outlet_id"] = outlet_id
 
         tickets = await TicketsDao.filters_unauth(**filters)
-        tickets = [TicketRead.from_orm(ticket).dict() for ticket in tickets]
+
+        cleaned_tickets = []
+
+        for t in tickets:
+            print("========== DEBUG FILTER ==========")
+            print("VALUE:", repr(t.assigned_agent_id))
+            print("TYPE:", type(t.assigned_agent_id))
+            print("IS NONE:", t.assigned_agent_id is None)
+            print("EQUAL 'None':", t.assigned_agent_id == "None")
+            print("==================================")
+
+            # 🔥 CLEAN THE VALUE HERE
+            if t.assigned_agent_id in ("None", "", None):
+                t.assigned_agent_id = None
+
+            cleaned_tickets.append(t)
+
+        # Now validate cleaned tickets
+        tickets = [
+            TicketRead.model_validate(ticket, from_attributes=True).model_dump()
+            for ticket in cleaned_tickets
+        ]
+
         return {"tickets": tickets}, 200
 
 

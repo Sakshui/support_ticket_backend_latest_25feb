@@ -13,13 +13,13 @@ async def tickets_controller(request: Request) -> ApiResponse:
 
     web_url = data.get("web_url")
     customer_id = data.get("customer_details", {}).get("customer_id") or data.get("customer_id")
-    email = data.get("raised_by", {}).get("email") or data.get("email")
+    #email = data.get("raised_by", {}).get("email") or data.get("email")
 
     if not web_url:
         return APIResponse.error(message="Missing param web_url", code=400)
 
-    if not customer_id or not email:
-        return APIResponse.error(message="customer_id or email not found", code=400)
+    #if not customer_id or not email:
+    #    return APIResponse.error(message="customer_id or email not found", code=400)
 
     method = request.method
 

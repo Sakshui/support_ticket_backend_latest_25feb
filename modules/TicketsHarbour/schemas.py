@@ -94,9 +94,12 @@ class TicketBase(BaseModel):
     priority: TicketPriorityEnum = TicketPriorityEnum.LOW
     department: str
     
-    issue_slug: str
-    category_slug: str
-    sub_category_slug: str
+    # issue_slug: str
+    # category_slug: str
+    # sub_category_slug: str
+    issue_id: Optional[int] = None
+    category_id: Optional[int] = None
+    sub_category_id: Optional[int] = None
     
     status: TicketStatusEnum = TicketStatusEnum.PENDING
     assigned_agent_id: int = None

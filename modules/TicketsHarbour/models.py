@@ -5,6 +5,7 @@ from typing import Optional, Any
 from app.database import Base
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from datetime import datetime
+from sqlalchemy import BigInteger
 
 class Ticket(Base):
     __tablename__ = "tickets"
@@ -22,7 +23,7 @@ class Ticket(Base):
 
     # Ticket issuer & customer data
     raised_by: Mapped[str]                    = mapped_column(String, nullable=False) # customer or agent
-    raised_by_id: Mapped[int]                 = mapped_column(Integer, nullable=False) # customer_id or agent_id based on raised_by
+    raised_by_id: Mapped[int]                 = mapped_column(BigInteger, nullable=False) # customer_id or agent_id based on raised_by
     customer_details: Mapped[Optional[JSONB]] = mapped_column(JSONB, nullable=True)
 
     # Additional details
@@ -40,7 +41,12 @@ class Ticket(Base):
 
     # Assignment & status
     status: Mapped[str]                                             = mapped_column(String(20), default="pending", server_default=text("'pending'"), nullable=False)
-    assigned_agent_id: Mapped[int]                                  = mapped_column(Integer, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True)
+    assigned_agent_id: Mapped[Optional[int]] = mapped_column(
+    Integer,
+    ForeignKey("agents.id", ondelete="SET NULL"),
+    nullable=True,
+    index=True
+)
     previous_assigned_agent_id: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb")) # id, re-assigned timestamps
     
     is_trash: Mapped[bool]                                          = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)

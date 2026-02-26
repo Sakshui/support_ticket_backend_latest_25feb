@@ -2,6 +2,7 @@ from typing import Optional, Dict, Any, List,Union
 from datetime import datetime
 from pydantic import BaseModel, Field, model_validator
 from enum import Enum
+from pydantic import ConfigDict
 
 # ================================================ Tickets ====================================================================
 
@@ -90,17 +91,19 @@ class TicketBase(BaseModel):
     raised_by_id: int # customer_id or agent_id based on raised_by
     customer_details: Optional[CustomerDetails] = None
     
-    tags: List[str]
+    
+    tags: Optional[List[str]]
+    #tags: List[str]
     priority: TicketPriorityEnum = TicketPriorityEnum.LOW
     department: str
     
-    issue: str
-    category: str
-    sub_category: str
+    issue_id: int
+    category_id: int
+    sub_category_id: int
     
     status: TicketStatusEnum = TicketStatusEnum.PENDING
-    assigned_agent_id: Optional[int] = None
-    previous_assigned_agent_id: List[Dict[str, Any]]
+    #assigned_agent_id: Optional[int] = None
+    previous_assigned_agent_id: List[Dict[str, Any]] = Field(default_factory=list)
     
     source: Optional[SourceInfo] = None 
 
@@ -112,11 +115,42 @@ class TicketUpdateIn(BaseModel):
     status: Optional[TicketStatusEnum]
     assigned_agent_id: Optional[int]
 
-class TicketRead(TicketBase):
+class TicketRead(BaseModel):
     id: int
+    outlet_id: int
+    support_ticket_id: str
+    api_key: Optional[str] = None
+    
+    subject: str
+    description: Optional[str] = None
+    attachment: Optional[str] = None
+    
+    raised_by: TicketRaisedByEnum
+    raised_by_id: int
+    customer_details: Optional[CustomerDetails] = None
+    
+    tags: Optional[List[str]]
+    priority: TicketPriorityEnum
+    department: str
+    
+    issue_id: int
+    category_id: int
+    sub_category_id: int
+    
+    status: TicketStatusEnum
+    
+    assigned_agent_id: Optional[int] = None
+    previous_assigned_agent_id: List[Dict[str, Any]] = Field(default_factory=list)
+    
+    source: Optional[SourceInfo] = None
+    
     created_at: datetime
     updated_at: datetime
     is_trash: bool
+
+    model_config = {
+        "from_attributes": True
+    }
 
 class TicketRatingIn(BaseModel):
     id: int
