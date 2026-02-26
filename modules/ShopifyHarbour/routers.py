@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from app.utility import ApiResponse
 from app.project_schemas import APIResponse
 from app.auth import verify_jwt_token
+from modules.TicketsHarbour.controller import ticket_taxonomy_controller
 
 from .controller import *
 
@@ -28,6 +29,11 @@ async def delete_ticket(request: Request):
 @router.api_route("/handler/shop/close", methods=["POST"], response_model=APIResponse[dict], response_class=ApiResponse)
 async def close_ticket(request: Request):
     return await close_ticket_controller(request=request)
+
+#-------ticket taxonomy--------
+@router.api_route("/handler/outlet/ticket-taxonomy/", methods=["GET"], response_model=APIResponse[dict], response_class=ApiResponse)
+async def get_ticket_taxonomy(request: Request):
+    return await ticket_taxonomy_controller(request=request)
 
 
 
