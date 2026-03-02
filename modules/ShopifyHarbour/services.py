@@ -7,8 +7,14 @@ from .schemas import (
     TicketBase,
     TicketRatingIn,
     TicketRead,
+    TicketUpdateIn,
 )
 from modules.TicketsHarbour.dao import SupportSettingsDao, TicketsDao
+
+def _extract_email_from_raised_by(raised_by, fallback_email=None):
+    if isinstance(raised_by, dict):
+        return raised_by.get("email") or fallback_email
+    return fallback_email
 
 class TicketService:
 
@@ -142,7 +148,7 @@ class TicketService:
         status = str(data.get("status", "")).lower()
         web_url = data.get("web_url")
         customer_id = data.get("customer_id")
-        email = data.get("raised_by", {}).get("email") or data.get("email")
+        email = _extract_email_from_raised_by(data.get("raised_by"), data.get("email"))
 
         if not ticket_id:
             return {"error": "id is required"}, 400
@@ -170,12 +176,20 @@ class TicketService:
             return {"error": "Ticket does not belong to this shop"}, 403
 
         ticket_customer_id = (ticket.customer_details or {}).get("customer_id")
-        ticket_email = (ticket.raised_by or {}).get("email")
+        ticket_email = (ticket.customer_details or {}).get("customer_email")
 
         if str(ticket_customer_id) != str(customer_id) or (ticket_email or "").lower() != str(email).lower():
             return {"error": "Not authorized to close this ticket"}, 403
 
-        updated_id = await TicketsDao.update_status_for_customer(ticket_id=ticket_id, status=status)
+        ticket_update = TicketUpdateIn(
+            id=ticket_id,
+            outlet_id=outlet_id,
+            status=status,
+            assigned_agent_id=ticket.assigned_agent_id,
+        )
+
+        updated_id = await TicketsDao.update_status_and_agent(ticket_update)
+
         if not updated_id:
             return {"error": "Ticket update failed"}, 404
 

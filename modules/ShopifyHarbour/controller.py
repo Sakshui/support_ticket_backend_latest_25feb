@@ -6,6 +6,13 @@ from user_agents import parse
 
 from .services import *
 
+
+def _extract_email_from_payload(data: dict) -> str:
+    raised_by = data.get("raised_by")
+    if isinstance(raised_by, dict):
+        return raised_by.get("email") or data.get("email")
+    return data.get("email")
+
 # ============================================== UNAUTHENTICATED CUSTOMER TICKET CONTROLLER ========================================
 
 async def tickets_controller(request: Request) -> ApiResponse:   
@@ -51,7 +58,7 @@ async def close_ticket_controller(request: Request) -> ApiResponse:
 
     web_url = data.get("web_url")
     customer_id = data.get("customer_details", {}).get("customer_id") or data.get("customer_id")
-    email = data.get("raised_by", {}).get("email") or data.get("email")
+    email = _extract_email_from_payload(data)
 
     if not web_url:
         return APIResponse.error(message="Missing param web_url", code=400)
