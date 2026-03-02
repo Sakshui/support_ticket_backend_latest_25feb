@@ -1,5 +1,14 @@
-from .schemas import *
-from modules.TicketsHarbour.dao import *
+# from .schemas import *
+# from modules.TicketsHarbour.dao import *
+from .schemas import (
+    SupportSettingsBase,
+    SupportSettingsRead,
+    SupportSettingsUpdateIn,
+    TicketBase,
+    TicketRatingIn,
+    TicketRead,
+)
+from modules.TicketsHarbour.dao import SupportSettingsDao, TicketsDao
 
 class TicketService:
 
